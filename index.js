@@ -1,34 +1,42 @@
 require('dotenv').config();
-const express = require('express');
-const bodyParser = require('body-parser');
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Events } = require('discord.js');
 const axios = require('axios');
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  intents: [GatewayIntentBits.Guilds]
 });
 
-const app = express();
-app.use(bodyParser.json());
-
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+client.once(Events.ClientReady, () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-app.post('/imagine', async (req, res) => {
-  const { prompt } = req.body;
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== 'imagine') return;
+
+  const prompt = interaction.options.getString('prompt');
+
+  // Reply so Discord doesn't time out
+  await interaction.reply({
+    content: `🧠 Sending your prompt: "${prompt}" to MidJourney...`,
+    ephemeral: true
+  });
+
   try {
-    const channel = await client.channels.fetch(process.env.CHANNEL_ID);
-    await channel.send(`/imagine ${prompt}`);
-    res.status(200).json({ message: 'Prompt sent to MidJourney' });
+    const response = await axios.post(`${process.env.MJ_PROXY_URL}/imagine`, {
+      prompt,
+      ref: interaction.user.username,
+      webhookOverride: process.env.N8N_WEBHOOK_URL || null
+    });
+
+    console.log('✅ MJ Proxy accepted:', response.data);
   } catch (err) {
-    res.status(500).json({ error: 'Error sending prompt', details: err.message });
+    console.error('❌ MJ Proxy error:', err.message);
+    await interaction.followUp({
+      content: `❌ Failed to send prompt: ${err.message}`,
+      ephemeral: true
+    });
   }
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Proxy API listening on port ${PORT}`);
-});
